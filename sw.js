@@ -1,7 +1,7 @@
 // Offline support: cache the app shell on install, serve it cache-first,
 // and cache Google Fonts the first time they load.
 // Bump VERSION whenever you change any app file so phones pick up the update.
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `quartz-scorer-${VERSION}`;
 const SHELL = [
   "./",

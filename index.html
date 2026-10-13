@@ -161,11 +161,14 @@ function render(){
       <div class="break"><span>Crystal value</span><span>${r.value}</span><span>Set bonuses</span><span class="${r.sets?"pos":""}">${fmt(r.sets)}</span><span>Unstable</span><span class="${r.unstable?"neg":""}">${fmt(r.unstable)}</span><span>Reckless Miner</span><span class="${r.reckless?"neg":""}">${fmt(r.reckless)}</span></div>
       <div class="total"><span>Total ${r.reckless?'<span class="pill">fewest in chest</span>':""}</span><span class="tot">${r.total}</span></div>`;
     const inp=c.querySelector("input");inp.value=p.name;
+    inp.addEventListener("focus",e=>{if(!refocusing)setTimeout(()=>e.target.select())});
     inp.addEventListener("input",e=>{p.name=e.target.value;state.isSample=false;save();renderStandingsOnly()});
     grid.append(c);
   });
 }
-function renderStandingsOnly(){const a=document.activeElement&&document.activeElement.id;render();if(a){const el=document.getElementById(a);if(el){el.focus();const v=el.value;el.setSelectionRange(v.length,v.length)}}}
+// Re-render keeps the caret in the name being typed; refocusing stops the focus handler from selecting it all again.
+let refocusing=false;
+function renderStandingsOnly(){const a=document.activeElement&&document.activeElement.id;render();if(a){const el=document.getElementById(a);if(el){refocusing=true;el.focus();refocusing=false;const v=el.value;el.setSelectionRange(v.length,v.length)}}}
 function stepRow(idx,k,color,label,hint){
   const v=state.players[idx][k];
   return `<div class="row"><span class="gem" style="--c:${color}"></span><span class="lbl">${label}<small>${hint}</small></span>
