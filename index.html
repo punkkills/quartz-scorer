@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="End-of-game score tally for Quartz: The Dice Game.">
+<meta name="theme-color" content="#3b4a7a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Quartz Dice Scorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@700;800&family=Alegreya+Sans:wght@400;500;700&display=swap">
+<style>
+html{color-scheme:light}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+[hidden]{display:none!important}
+/* Layout: a mine ledger — standings strip on top, one tally card per dwarf below, crystals as colored steppers */
+:root{
+  --bg:#eef0f3; --surface:#ffffff; --fg:#1d2230; --muted:#5d6577; --line:#d6dae2; --accent:#3b4a7a;
+  --quartz:#b9c2cf; --rubellite:#d4508a; --emerald:#2f9e67; --sapphire:#2f6fd0; --ruby:#c8303a; --amber:#e39a1d; --unstable:#3d4a2a;
+  --good:#2f9e67; --bad:#c8303a;
+  --display:"Alegreya SC",Georgia,serif; --body:"Alegreya Sans",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#13161d; --surface:#1c2029; --fg:#e8eaf0; --muted:#9aa2b4; --line:#2f3543; --accent:#9fb0ea; --quartz:#cfd6e0; --unstable:#a6b86a; --good:#4cc78a; --bad:#ff6b73; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#13161d; --surface:#1c2029; --fg:#e8eaf0; --muted:#9aa2b4; --line:#2f3543; --accent:#9fb0ea; --quartz:#cfd6e0; --unstable:#a6b86a; --good:#4cc78a; --bad:#ff6b73; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.45}
+.wrap{max-width:1100px;margin:0 auto;padding-inline:16px;padding-block:20px 48px;display:grid;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:12px}
+h1{font-family:var(--display);font-size:2rem;margin:0;line-height:1;text-wrap:balance}
+.sub{color:var(--muted);margin:4px 0 0}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:8px 14px}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:700}
+.note{font-size:.9rem;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:8px;padding:8px 12px}
+.standings{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.standings h2,.card h2{font-family:var(--display);font-size:1.15rem;margin:0}
+.standings ol{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px}
+.standings li{display:grid;grid-template-columns:2rem 1fr auto;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--line)}
+.standings li:first-child{border-top:0}
+.rank{font-family:var(--display);font-size:1.2rem;color:var(--muted)}
+.lead .rank{color:var(--amber)}
+.lead .nm{font-weight:700}
+.tot{font-variant-numeric:tabular-nums;font-weight:700;font-size:1.2rem}
+.tie{font-size:.8rem;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;gap:10px;min-width:0}
+.card-head{display:flex;gap:8px;align-items:center}
+.card-head input{flex:1;min-width:0;font:inherit;font-family:var(--display);font-size:1.15rem;font-weight:700;background:transparent;color:var(--fg);border:0;border-bottom:1px dashed var(--line);padding:2px 0}
+.x{border:0;background:transparent;color:var(--muted);padding:4px 8px}
+.row{display:grid;grid-template-columns:14px 1fr auto;align-items:center;gap:10px}
+.gem{width:14px;height:14px;transform:rotate(45deg);border-radius:2px;background:var(--c)}
+.lbl small{color:var(--muted);margin-left:4px;font-variant-numeric:tabular-nums}
+.step{display:flex;align-items:center;gap:4px}
+.step button{width:34px;height:34px;padding:0;font-size:1.1rem;line-height:1}
+.step output{width:2ch;text-align:center;font-variant-numeric:tabular-nums;font-weight:700}
+.sep{border:0;border-top:1px solid var(--line);margin:2px 0}
+.break{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:.92rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.break span:nth-child(even){text-align:right}
+.neg{color:var(--bad)} .pos{color:var(--good)}
+.total{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--display);font-size:1.3rem}
+.pill{font-family:var(--body);font-size:.75rem;font-weight:700;border-radius:99px;padding:2px 8px;background:var(--bad);color:var(--surface)}
+.rules{color:var(--muted);font-size:.92rem;max-width:65ch}
+.rules summary{cursor:pointer;color:var(--fg);font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Quartz Dice Scorer</h1>
+      <p class="sub">End-of-day tally for Quartz: The Dice Game</p>
+    </div>
+    <div class="btns">
+      <button id="add" class="primary" type="button">Add player</button>
+      <button id="clear" type="button">Zero all counts</button>
+      <button id="reset" type="button">New game</button>
+    </div>
+  </header>
+  <p class="note" id="sample">Example game loaded. Rename the players and tap the counts to enter your own results.</p>
+
+  <section class="standings" aria-live="polite">
+    <h2>Standings</h2>
+    <ol id="standings"></ol>
+  </section>
+
+  <section class="grid" id="players"></section>
+
+  <details class="rules">
+    <summary>Scoring rules used</summary>
+    <p>Crystals: Quartz $2, Rubellite $3, Emerald $4, Sapphire $5, Ruby $7, Amber $9. Sets of one color: 3 = +3, 4 = +6, 5 or more = +10. Each unstable crystal is −3. The player with the fewest crystals in their chest loses 5 (all tied players lose 5). Ties go to the most Quartz, then Rubellite, and so on up the value ladder.</p>
+    <p>Count every crystal a player owns, cart and chest together. Enter the chest count separately for the Reckless Miner penalty.</p>
+  </details>
+</div>
+
+<script>
+const GEMS=[["quartz","Quartz",2],["rubellite","Rubellite",3],["emerald","Emerald",4],["sapphire","Sapphire",5],["ruby","Ruby",7],["amber","Amber",9]];
+const KEY="quartz-scorer-v1";
+const blank=n=>({name:n,quartz:0,rubellite:0,emerald:0,sapphire:0,ruby:0,amber:0,unstable:0,chest:0});
+const sample=()=>[
+  {name:"Example: Bryn",quartz:3,rubellite:1,emerald:2,sapphire:0,ruby:1,amber:1,unstable:1,chest:3},
+  {name:"Example: Thora",quartz:1,rubellite:4,emerald:0,sapphire:2,ruby:0,amber:0,unstable:2,chest:2},
+  {name:"Example: Durin",quartz:0,rubellite:2,emerald:1,sapphire:1,ruby:2,amber:1,unstable:0,chest:2}];
+let state;
+try{state=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+if(!state||!Array.isArray(state.players)){state={players:sample(),isSample:true}}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}};
+const bonus=n=>n>=5?10:n===4?6:n===3?3:0;
+
+function score(players){
+  const minChest=Math.min(...players.map(p=>p.chest));
+  return players.map(p=>{
+    const value=GEMS.reduce((s,[k,,v])=>s+p[k]*v,0);
+    const sets=GEMS.reduce((s,[k])=>s+bonus(p[k]),0);
+    const unstable=-3*p.unstable;
+    const reckless=players.length>1&&p.chest===minChest?-5:0;
+    return {p,value,sets,unstable,reckless,total:value+sets+unstable+reckless};
+  });
+}
+function rank(scored){
+  return [...scored].sort((a,b)=>{
+    if(b.total!==a.total)return b.total-a.total;
+    for(const [k] of GEMS){if(b.p[k]!==a.p[k])return b.p[k]-a.p[k]}
+    return 0;
+  });
+}
+const fmt=n=>(n>0?"+":n<0?"−":"")+Math.abs(n);
+
+function render(){
+  document.getElementById("sample").hidden=!state.isSample;
+  const scored=score(state.players);
+  const ranked=rank(scored);
+  const st=document.getElementById("standings");
+  st.innerHTML="";
+  ranked.forEach((r,i)=>{
+    const li=document.createElement("li");
+    if(i===0)li.className="lead";
+    const tiedAbove=i>0&&ranked[i-1].total===r.total;
+    const tiedBelow=ranked[i+1]&&ranked[i+1].total===r.total;
+    li.innerHTML=`<span class="rank">${i+1}</span><span class="nm"></span><span class="tot">${r.total}</span>`;
+    li.querySelector(".nm").textContent=r.p.name||"Unnamed";
+    if(tiedAbove||tiedBelow){const t=document.createElement("span");t.className="tie";t.textContent="  (tie broken by crystal colors)";li.querySelector(".nm").append(t)}
+    st.append(li);
+  });
+  const grid=document.getElementById("players");
+  grid.innerHTML="";
+  state.players.forEach((p,idx)=>{
+    const r=scored[idx];
+    const c=document.createElement("article");c.className="card";
+    const rows=GEMS.map(([k,l,v])=>stepRow(idx,k,`var(--${k})`,l,`$${v}${bonus(p[k])?` · set +${bonus(p[k])}`:""}`)).join("");
+    c.innerHTML=`<div class="card-head"><input id="name-${idx}" aria-label="Player name" maxlength="24"><button class="x" data-del="${idx}" aria-label="Remove player" type="button">✕</button></div>
+      ${rows}<hr class="sep">
+      ${stepRow(idx,"unstable","var(--unstable)","Unstable","−3 each")}
+      ${stepRow(idx,"chest","var(--accent)","In chest","for penalty")}
+      <hr class="sep">
+      <div class="break"><span>Crystal value</span><span>${r.value}</span><span>Set bonuses</span><span class="${r.sets?"pos":""}">${fmt(r.sets)}</span><span>Unstable</span><span class="${r.unstable?"neg":""}">${fmt(r.unstable)}</span><span>Reckless Miner</span><span class="${r.reckless?"neg":""}">${fmt(r.reckless)}</span></div>
+      <div class="total"><span>Total ${r.reckless?'<span class="pill">fewest in chest</span>':""}</span><span class="tot">${r.total}</span></div>`;
+    const inp=c.querySelector("input");inp.value=p.name;
+    inp.addEventListener("input",e=>{p.name=e.target.value;state.isSample=false;save();renderStandingsOnly()});
+    grid.append(c);
+  });
+}
+function renderStandingsOnly(){const a=document.activeElement&&document.activeElement.id;render();if(a){const el=document.getElementById(a);if(el){el.focus();const v=el.value;el.setSelectionRange(v.length,v.length)}}}
+function stepRow(idx,k,color,label,hint){
+  const v=state.players[idx][k];
+  return `<div class="row"><span class="gem" style="--c:${color}"></span><span class="lbl">${label}<small>${hint}</small></span>
+    <span class="step"><button type="button" data-i="${idx}" data-k="${k}" data-d="-1" aria-label="${label} minus one">−</button><output>${v}</output><button type="button" data-i="${idx}" data-k="${k}" data-d="1" aria-label="${label} plus one">+</button></span></div>`;
+}
+document.getElementById("players").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.del!==undefined){state.players.splice(+b.dataset.del,1);}
+  else if(b.dataset.k){const p=state.players[+b.dataset.i];p[b.dataset.k]=Math.max(0,Math.min(30,p[b.dataset.k]+ +b.dataset.d));}
+  else return;
+  state.isSample=false;save();render();
+});
+document.getElementById("add").onclick=()=>{if(state.players.length>=6)return;state.players.push(blank(`Player ${state.players.length+1}`));state.isSample=false;save();render()};
+document.getElementById("clear").onclick=()=>{state.players=state.players.map(p=>blank(p.name));state.isSample=false;save();render()};
+document.getElementById("reset").onclick=()=>{state={players:[blank("Player 1"),blank("Player 2"),blank("Player 3")],isSample:false};save();render()};
+render();
+</script>
+
+<script>
+if("serviceWorker" in navigator){addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}
+</script>
+</body>
+</html>
