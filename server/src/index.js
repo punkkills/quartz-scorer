@@ -2,6 +2,8 @@
 // The Worker routes /room/<CODE> WebSocket connections to one Durable Object per room code.
 // The room keeps the players, saves them, and sends the full state to every phone on each change.
 // Each connection may only edit its own player. Counts stay hidden until every player is done.
+// After the reveal, any player can start a new game with the same players. Games are numbered (round)
+// so a phone that slept through it can't bring back the previous game's counts when it reconnects.
 //
 // Abuse limits, to keep a misbehaving client from using up the free plan's daily quota:
 // each connection may send RATE_PER_SEC messages a second (bursts up to RATE_BURST) or it is disconnected,
@@ -74,8 +76,14 @@ export class GameRoom extends DurableObject {
 
     if (msg.t === "set") {
       if (typeof msg.name === "string") me.name = cleanName(msg.name) || me.name;
-      if (msg.counts && typeof msg.counts === "object") me.counts = cleanCounts(msg.counts);
-      if (typeof msg.done === "boolean") me.done = msg.done;
+      // Counts from an earlier game are ignored. Messages without a round come from older app versions.
+      const stale = msg.round !== undefined && msg.round !== this.round();
+      if (!stale && msg.counts && typeof msg.counts === "object") me.counts = cleanCounts(msg.counts);
+      if (!stale && typeof msg.done === "boolean") me.done = msg.done;
+    } else if (msg.t === "newgame") {
+      if (!this.revealed()) return this.fail(ws, "notyet");
+      this.room.round = this.round() + 1;
+      for (const p of this.room.players) { p.counts = cleanCounts({}); p.done = false; }
     } else if (msg.t === "leave") {
       this.room.players = this.room.players.filter((p) => p !== me);
       ws.serializeAttachment({});
@@ -157,13 +165,21 @@ export class GameRoom extends DurableObject {
     return new Set(this.openSockets().map((ws) => ws.deserializeAttachment()?.pid).filter(Boolean));
   }
 
+  round() {
+    return this.room.round || 0;
+  }
+
+  revealed() {
+    return this.room.players.length > 0 && this.room.players.every((p) => p.done);
+  }
+
   // Everyone gets the same view, except that counts are only included once all players are done.
   broadcast() {
     if (!this.room) return;
     const sockets = this.openSockets();
     const online = this.onlinePids();
     const players = this.room.players;
-    const revealed = players.length > 0 && players.every((p) => p.done);
+    const revealed = this.revealed();
     for (const ws of sockets) {
       const you = ws.deserializeAttachment()?.pid;
       if (!you) continue;
@@ -175,7 +191,7 @@ export class GameRoom extends DurableObject {
         online: online.has(p.pid),
         counts: revealed || p.pid === you ? p.counts : undefined,
       }));
-      ws.send(JSON.stringify({ t: "state", revealed, players: view, expires: this.room.created + ROOM_TTL_MS }));
+      ws.send(JSON.stringify({ t: "state", round: this.round(), revealed, players: view, expires: this.room.created + ROOM_TTL_MS }));
     }
   }
 }

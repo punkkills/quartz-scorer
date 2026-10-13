@@ -127,6 +127,7 @@ button.primary{background:var(--accent);color:var(--bg);border-color:var(--accen
     <section class="standings" id="results" aria-live="polite" hidden>
       <h2>Final standings</h2>
       <ol id="room-standings"></ol>
+      <div class="btns" style="margin-top:12px"><button id="newgame" class="primary" type="button">New game, same players</button></div>
     </section>
     <section class="grid" id="room-cards"></section>
     <section class="panel" id="waiting">
@@ -267,7 +268,7 @@ const store=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(
 const zeros=()=>{const {name,...c}=blank("");return c};
 const newCode=()=>Array.from({length:4},()=>"ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random()*24)]).join("");
 const newPid=()=>Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>(b%36).toString(36)).join("");
-let session=load(ROOM_KEY); // {code,pid,name,counts,done}
+let session=load(ROOM_KEY); // {code,pid,name,counts,done,round}
 let ws=null,view=null,conn="",retry=0,retryTimer=null,nameTimer=null;
 
 function show(mode){
@@ -284,7 +285,8 @@ function showStart(err,code){
 }
 function saveSession(){store(ROOM_KEY,session)}
 function send(m){if(ws&&ws.readyState===1)ws.send(JSON.stringify(m))}
-function sendMine(){send({t:"set",name:session.name,counts:session.counts,done:session.done})}
+// round numbers the games in this room; the server ignores counts from an earlier game.
+function sendMine(){send({t:"set",round:session.round||0,name:session.name,counts:session.counts,done:session.done})}
 
 function connect(create){
   clearTimeout(retryTimer);
@@ -295,7 +297,11 @@ function connect(create){
   s.onmessage=e=>{
     if(ws!==s)return;
     let m;try{m=JSON.parse(e.data)}catch(err){return}
-    if(m.t==="state"){view=m;conn="";renderRoom()}
+    if(m.t==="state"){
+      // Someone started a new game (possibly while this phone was asleep): start this player's count over too.
+      if((m.round||0)!==(session.round||0)){session.round=m.round||0;session.counts=zeros();session.done=false;saveSession()}
+      view=m;conn="";renderRoom();
+    }
     else if(m.t==="error")roomError(m.code,create);
   };
   s.onclose=e=>{
@@ -380,6 +386,9 @@ $("who").addEventListener("click",e=>{
   const p=view.players[+b.dataset.remove];
   if(p&&confirm(`Remove ${p.name} from the game? Their phone isn't connected.`))send({t:"remove",index:+b.dataset.remove});
 });
+$("newgame").onclick=()=>{
+  if(confirm("Start a new game with the same players? Everyone's counts will be cleared."))send({t:"newgame"});
+};
 $("together").onclick=()=>showStart();
 $("start-cancel").onclick=()=>show("solo");
 $("host").onclick=()=>startSession(newCode(),true);

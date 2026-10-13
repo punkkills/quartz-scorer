@@ -178,6 +178,38 @@ await test("junk messages get an error, not a crash", async () => {
   assert.equal((await host.next((m) => isState(m) && m.players[0].name === "Still here")).players.length, 1);
 });
 
+await test("new game keeps the players and clears everyone's counts", async () => {
+  const room = "NG" + code.slice(2);
+  const a = phone(room); await a.opened;
+  a.send({ t: "hello", pid: pid(), name: "Ann", create: true });
+  await a.next(isState);
+  const b = phone(room); await b.opened;
+  b.send({ t: "hello", pid: pid(), name: "Ben" });
+  await b.next(isState);
+
+  a.send({ t: "newgame" });
+  assert.deepEqual(await a.next((m) => m.t === "error"), { t: "error", code: "notyet" }, "only after the reveal");
+
+  a.send({ t: "set", round: 0, counts: { ruby: 3 }, done: true });
+  b.send({ t: "set", round: 0, counts: { amber: 2 }, done: true });
+  await a.next((m) => isState(m) && m.revealed);
+
+  b.send({ t: "newgame" });
+  const s = await a.next((m) => isState(m) && m.round === 1);
+  assert.equal(s.revealed, false);
+  assert.deepEqual(s.players.map((p) => p.name), ["Ann", "Ben"]);
+  assert.ok(s.players.every((p) => !p.done));
+  assert.equal(s.players[0].counts.ruby, 0, "own counts cleared");
+
+  // A phone that slept through the new game re-sends its old counts: they must be ignored.
+  a.send({ t: "set", round: 0, counts: { ruby: 3 }, done: true });
+  a.send({ t: "set", round: 1, name: "Ann", counts: { quartz: 2 }, done: false });
+  const after = await a.next((m) => isState(m) && m.players[0].counts.quartz === 2);
+  assert.equal(after.players[0].counts.ruby, 0);
+  assert.equal(after.players[0].done, false);
+  a.ws.close(); b.ws.close();
+});
+
 await test("the live config only allows the GitHub Pages site", async () => {
   const config = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
   const origins = config.match(/"ALLOWED_ORIGINS":\s*"([^"]*)"/)[1];
