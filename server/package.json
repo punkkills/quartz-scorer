@@ -1,0 +1,13 @@
+{
+  "name": "quartz-rooms",
+  "private": true,
+  "description": "Game rooms server for Quartz Dice Scorer (Cloudflare Worker + Durable Object).",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/rooms.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.150.0"
+  }
+}

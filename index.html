@@ -66,6 +66,26 @@ button.primary{background:var(--accent);color:var(--bg);border-color:var(--accen
 .pill{font-family:var(--body);font-size:.75rem;font-weight:700;border-radius:99px;padding:2px 8px;background:var(--bad);color:var(--surface)}
 .rules{color:var(--muted);font-size:.92rem;max-width:65ch}
 .rules summary{cursor:pointer;color:var(--fg);font-weight:700}
+/* Play together: start panel, room bar, player list */
+#solo,#room{display:grid;gap:20px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;gap:12px}
+.panel h2{font-family:var(--display);font-size:1.15rem;margin:0}
+.panel p{margin:0}
+.field{display:grid;gap:4px;font-weight:700}
+.field input{font:inherit;font-weight:400;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);min-width:0}
+.join{display:flex;gap:8px}
+.join input{width:7ch;text-transform:uppercase;letter-spacing:.2em;font-weight:700}
+.status{color:var(--muted);font-size:.92rem}
+.err{color:var(--bad)}
+.roombar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.code{font-family:var(--display);font-size:1.8rem;letter-spacing:.15em;line-height:1.1}
+.who{list-style:none;margin:0;padding:0;display:grid}
+.who li{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.who li:first-child{border-top:0}
+.ok{color:var(--good);font-weight:700}
+.counts{font-size:.88rem;color:var(--muted)}
+.card-head .nm-static{flex:1;font-family:var(--display);font-size:1.15rem;font-weight:700}
+.step button:disabled{opacity:.35;cursor:default}
 </style>
 </head>
 <body>
@@ -76,12 +96,46 @@ button.primary{background:var(--accent);color:var(--bg);border-color:var(--accen
       <h1>Quartz Dice Scorer</h1>
       <p class="sub">End-of-day tally for Quartz: The Dice Game</p>
     </div>
-    <div class="btns">
-      <button id="add" class="primary" type="button">Add player</button>
+    <div class="btns" id="solo-btns">
+      <button id="together" class="primary" type="button">Play together</button>
+      <button id="add" type="button">Add player</button>
       <button id="clear" type="button">Zero all counts</button>
       <button id="reset" type="button">New game</button>
     </div>
   </header>
+
+  <section class="panel" id="start" hidden>
+    <h2>Play together</h2>
+    <p class="status">Each player enters their own crystals on their own phone. Everyone's scores are revealed once all players tap Done.</p>
+    <label class="field">Your name<input id="my-name" maxlength="24" autocomplete="nickname"></label>
+    <div class="btns"><button id="host" class="primary" type="button">Host a new game</button></div>
+    <div class="field"><span>Or join with a room code</span>
+      <div class="join"><input id="join-code" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Room code" placeholder="ABCD"><button id="join" type="button">Join</button></div>
+    </div>
+    <p class="err" id="start-err" role="alert" hidden></p>
+    <div class="btns"><button id="start-cancel" type="button">Back to solo scoring</button></div>
+  </section>
+
+  <div id="room" hidden>
+    <section class="panel">
+      <div class="roombar">
+        <div><span class="status">Room code</span><div class="code" id="room-code"></div></div>
+        <div class="btns"><button id="invite" class="primary" type="button">Invite players</button><button id="leave" type="button">Leave game</button></div>
+      </div>
+      <p class="status" id="conn" aria-live="polite" hidden></p>
+    </section>
+    <section class="standings" id="results" aria-live="polite" hidden>
+      <h2>Final standings</h2>
+      <ol id="room-standings"></ol>
+    </section>
+    <section class="grid" id="room-cards"></section>
+    <section class="panel" id="waiting">
+      <h2>Players</h2>
+      <ul class="who" id="who"></ul>
+    </section>
+  </div>
+
+  <div id="solo">
   <p class="note" id="sample">Example game loaded. Rename the players and tap the counts to enter your own results.</p>
 
   <section class="standings" aria-live="polite">
@@ -90,6 +144,7 @@ button.primary{background:var(--accent);color:var(--bg);border-color:var(--accen
   </section>
 
   <section class="grid" id="players"></section>
+  </div>
 
   <details class="rules">
     <summary>Scoring rules used</summary>
@@ -130,12 +185,9 @@ function rank(scored){
   });
 }
 const fmt=n=>(n>0?"+":n<0?"−":"")+Math.abs(n);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>`&#${c.charCodeAt(0)};`);
 
-function render(){
-  document.getElementById("sample").hidden=!state.isSample;
-  const scored=score(state.players);
-  const ranked=rank(scored);
-  const st=document.getElementById("standings");
+function fillStandings(st,ranked){
   st.innerHTML="";
   ranked.forEach((r,i)=>{
     const li=document.createElement("li");
@@ -147,32 +199,49 @@ function render(){
     if(tiedAbove||tiedBelow){const t=document.createElement("span");t.className="tie";t.textContent="  (tie broken by crystal colors)";li.querySelector(".nm").append(t)}
     st.append(li);
   });
+}
+// Crystal steppers for one player. attr tags the buttons (data-i="2" in solo, data-mine in a room); off disables them.
+function stepRows(p,attr,off){
+  const gems=GEMS.map(([k,l,v])=>stepRow(p[k],attr,k,`var(--${k})`,l,`$${v}${bonus(p[k])?` · set +${bonus(p[k])}`:""}`,off)).join("");
+  return `${gems}<hr class="sep">
+    ${stepRow(p.unstable,attr,"unstable","var(--unstable)","Unstable","−3 each",off)}
+    ${stepRow(p.chest,attr,"chest","var(--accent)","In chest","for penalty",off)}`;
+}
+function stepRow(v,attr,k,color,label,hint,off){
+  const dis=off?" disabled":"";
+  return `<div class="row"><span class="gem" style="--c:${color}"></span><span class="lbl">${label}<small>${hint}</small></span>
+    <span class="step"><button type="button" ${attr} data-k="${k}" data-d="-1" aria-label="${label} minus one"${dis}>−</button><output>${v}</output><button type="button" ${attr} data-k="${k}" data-d="1" aria-label="${label} plus one"${dis}>+</button></span></div>`;
+}
+function breakdown(r,recklessLabel="Reckless Miner"){
+  return `<div class="break"><span>Crystal value</span><span>${r.value}</span><span>Set bonuses</span><span class="${r.sets?"pos":""}">${fmt(r.sets)}</span><span>Unstable</span><span class="${r.unstable?"neg":""}">${fmt(r.unstable)}</span><span>${recklessLabel}</span><span class="${r.reckless?"neg":""}">${fmt(r.reckless)}</span></div>
+    <div class="total"><span>Total ${r.reckless?'<span class="pill">fewest in chest</span>':""}</span><span class="tot">${r.total}</span></div>`;
+}
+// Tapping a name selects it all so typing replaces it. refocusing is set while a re-render restores focus, so that doesn't re-select.
+let refocusing=false;
+function selectOnTap(inp){inp.addEventListener("focus",e=>{if(!refocusing)setTimeout(()=>e.target.select())})}
+// Re-render without losing the caret in the field being typed in.
+function withFocus(fn){
+  const a=document.activeElement,id=a&&a.id,s=a&&a.selectionStart,e=a&&a.selectionEnd;
+  fn();
+  const el=id&&document.getElementById(id);
+  if(el&&el!==document.activeElement){refocusing=true;el.focus();refocusing=false;if(s!=null)try{el.setSelectionRange(s,e)}catch(err){}}
+}
+
+function render(){
+  document.getElementById("sample").hidden=!state.isSample;
+  const scored=score(state.players);
+  fillStandings(document.getElementById("standings"),rank(scored));
   const grid=document.getElementById("players");
   grid.innerHTML="";
   state.players.forEach((p,idx)=>{
-    const r=scored[idx];
     const c=document.createElement("article");c.className="card";
-    const rows=GEMS.map(([k,l,v])=>stepRow(idx,k,`var(--${k})`,l,`$${v}${bonus(p[k])?` · set +${bonus(p[k])}`:""}`)).join("");
     c.innerHTML=`<div class="card-head"><input id="name-${idx}" aria-label="Player name" maxlength="24"><button class="x" data-del="${idx}" aria-label="Remove player" type="button">✕</button></div>
-      ${rows}<hr class="sep">
-      ${stepRow(idx,"unstable","var(--unstable)","Unstable","−3 each")}
-      ${stepRow(idx,"chest","var(--accent)","In chest","for penalty")}
-      <hr class="sep">
-      <div class="break"><span>Crystal value</span><span>${r.value}</span><span>Set bonuses</span><span class="${r.sets?"pos":""}">${fmt(r.sets)}</span><span>Unstable</span><span class="${r.unstable?"neg":""}">${fmt(r.unstable)}</span><span>Reckless Miner</span><span class="${r.reckless?"neg":""}">${fmt(r.reckless)}</span></div>
-      <div class="total"><span>Total ${r.reckless?'<span class="pill">fewest in chest</span>':""}</span><span class="tot">${r.total}</span></div>`;
+      ${stepRows(p,`data-i="${idx}"`)}<hr class="sep">${breakdown(scored[idx])}`;
     const inp=c.querySelector("input");inp.value=p.name;
-    inp.addEventListener("focus",e=>{if(!refocusing)setTimeout(()=>e.target.select())});
-    inp.addEventListener("input",e=>{p.name=e.target.value;state.isSample=false;save();renderStandingsOnly()});
+    selectOnTap(inp);
+    inp.addEventListener("input",e=>{p.name=e.target.value;state.isSample=false;save();withFocus(render)});
     grid.append(c);
   });
-}
-// Re-render keeps the caret in the name being typed; refocusing stops the focus handler from selecting it all again.
-let refocusing=false;
-function renderStandingsOnly(){const a=document.activeElement&&document.activeElement.id;render();if(a){const el=document.getElementById(a);if(el){refocusing=true;el.focus();refocusing=false;const v=el.value;el.setSelectionRange(v.length,v.length)}}}
-function stepRow(idx,k,color,label,hint){
-  const v=state.players[idx][k];
-  return `<div class="row"><span class="gem" style="--c:${color}"></span><span class="lbl">${label}<small>${hint}</small></span>
-    <span class="step"><button type="button" data-i="${idx}" data-k="${k}" data-d="-1" aria-label="${label} minus one">−</button><output>${v}</output><button type="button" data-i="${idx}" data-k="${k}" data-d="1" aria-label="${label} plus one">+</button></span></div>`;
 }
 document.getElementById("players").addEventListener("click",e=>{
   const b=e.target.closest("button");if(!b)return;
@@ -184,7 +253,162 @@ document.getElementById("players").addEventListener("click",e=>{
 document.getElementById("add").onclick=()=>{if(state.players.length>=6)return;state.players.push(blank(`Player ${state.players.length+1}`));state.isSample=false;save();render()};
 document.getElementById("clear").onclick=()=>{state.players=state.players.map(p=>blank(p.name));state.isSample=false;save();render()};
 document.getElementById("reset").onclick=()=>{state={players:[blank("Player 1"),blank("Player 2"),blank("Player 3")],isSample:false};save();render()};
+
+/* ---------- Play together ----------
+   Each phone joins a room on the rooms server (server/ in this repo) and owns one player.
+   This phone's own entry (session) is the source of truth for that player: it's saved locally,
+   sent on every change and re-sent after reconnecting, so a slow reply never overwrites a newer tap.
+   The server hides other players' counts until everyone is done, then everyone gets the full results. */
+const ROOMS_URL=/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?"ws://localhost:8787":"wss://quartz-rooms.punkkills.workers.dev";
+const ROOM_KEY="quartz-room-v1",NAME_KEY="quartz-name";
+const $=id=>document.getElementById(id);
+const load=k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}};
+const store=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const zeros=()=>{const {name,...c}=blank("");return c};
+const newCode=()=>Array.from({length:4},()=>"ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random()*24)]).join("");
+const newPid=()=>Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>(b%36).toString(36)).join("");
+let session=load(ROOM_KEY); // {code,pid,name,counts,done}
+let ws=null,view=null,conn="",retry=0,retryTimer=null,nameTimer=null;
+
+function show(mode){
+  $("solo").hidden=$("solo-btns").hidden=mode!=="solo";
+  $("start").hidden=mode!=="start";
+  $("room").hidden=mode!=="room";
+}
+function showStart(err,code){
+  show("start");
+  $("my-name").value=$("my-name").value||load(NAME_KEY)||"";
+  if(code)$("join-code").value=code;
+  $("start-err").textContent=err||"";$("start-err").hidden=!err;
+  (code&&$("my-name").value?$("join"):$("my-name")).focus();
+}
+function saveSession(){store(ROOM_KEY,session)}
+function send(m){if(ws&&ws.readyState===1)ws.send(JSON.stringify(m))}
+function sendMine(){send({t:"set",name:session.name,counts:session.counts,done:session.done})}
+
+function connect(create){
+  clearTimeout(retryTimer);
+  if(ws){ws.onclose=null;ws.close()}
+  const s=ws=new WebSocket(`${ROOMS_URL}/room/${session.code}`);
+  conn=retry?"Reconnecting…":"Connecting…";renderRoom();
+  s.onopen=()=>{retry=0;conn="";send({t:"hello",pid:session.pid,name:session.name,create});sendMine()};
+  s.onmessage=e=>{
+    if(ws!==s)return;
+    let m;try{m=JSON.parse(e.data)}catch(err){return}
+    if(m.t==="state"){view=m;conn="";renderRoom()}
+    else if(m.t==="error")roomError(m.code,create);
+  };
+  s.onclose=e=>{
+    if(ws!==s)return;
+    ws=null;
+    if(e.code===4000){leaveRoom();showStart("That game has ended (rooms last 24 hours).");return}
+    conn=retry>2?"Can't reach the game server. Still trying…":"Connection lost. Reconnecting…";renderRoom();
+    retryTimer=setTimeout(()=>connect(false),Math.min(10000,1000*2**retry++));
+  };
+}
+function roomError(code,create){
+  if(code==="taken"&&create){session.code=newCode();saveSession();connect(true);return}
+  const msg={nope:"No game with that code. Check the code, or the game may have ended.",full:"That game already has 6 players."}[code];
+  if(!msg)return;
+  const c=session.code;leaveRoom();showStart(msg,code==="nope"?"":c);
+}
+function enterRoom(create){view=null;retry=0;show("room");connect(create)}
+function leaveRoom(){
+  clearTimeout(retryTimer);
+  if(ws){ws.onclose=null;ws.close();ws=null}
+  session=null;view=null;saveSession();
+}
+function startSession(code,create){
+  const name=$("my-name").value.trim();
+  if(!name){showStart("Enter your name first.");return}
+  store(NAME_KEY,name);
+  session={code,pid:newPid(),name,counts:zeros(),done:false};
+  saveSession();enterRoom(create);
+}
+
+function renderRoom(){withFocus(renderRoomNow)}
+function renderRoomNow(){
+  if(!session)return;
+  $("room-code").textContent=session.code;
+  $("conn").textContent=conn;$("conn").hidden=!conn;
+  const others=view?view.players.filter(p=>!p.you):[];
+  const revealed=!!(view&&view.revealed);
+  const mine={name:session.name,...session.counts};
+  const everyone=revealed?view.players.map(p=>p.you?mine:{name:p.name,...p.counts}):[mine];
+  const scored=score(everyone);
+  $("results").hidden=!revealed;
+  if(revealed)fillStandings($("room-standings"),rank(scored));
+  const cards=$("room-cards");cards.innerHTML="";
+  if(!revealed){
+    const c=document.createElement("article");c.className="card";
+    c.innerHTML=`<div class="card-head"><input id="room-name" aria-label="Your name" maxlength="24"></div>
+      ${stepRows(mine,"data-mine",session.done)}<hr class="sep">${breakdown(scored[0],"Reckless Miner (after reveal)")}
+      <button id="done" type="button" class="${session.done?"":"primary"}">${session.done?"Edit my count":"I'm done counting"}</button>
+      <p class="status">${session.done?"Waiting for the other players. Scores appear when everyone is done.":"Count every crystal you own, cart and chest together."}</p>`;
+    const inp=c.querySelector("input");inp.value=session.name;
+    selectOnTap(inp);
+    inp.addEventListener("input",e=>{
+      session.name=e.target.value.slice(0,24);saveSession();
+      clearTimeout(nameTimer);nameTimer=setTimeout(()=>{if(session.name.trim())sendMine()},300);
+    });
+    cards.append(c);
+  }else{
+    everyone.forEach((p,i)=>{
+      const you=view.players[i].you;
+      const c=document.createElement("article");c.className="card";
+      const counts=[...GEMS.map(([k,l])=>p[k]?`${p[k]} ${l}`:""),p.unstable?`${p.unstable} unstable`:"",`${p.chest} in chest`].filter(Boolean).join(" · ");
+      c.innerHTML=`<div class="card-head"><span class="nm-static">${esc(p.name||"Unnamed")}${you?" (you)":""}</span></div>
+        <p class="counts">${esc(counts)}</p>${breakdown(scored[i])}
+        ${you?'<button id="done" type="button">Edit my count</button>':""}`;
+      cards.append(c);
+    });
+  }
+  $("waiting").hidden=revealed;
+  $("who").innerHTML=view?view.players.map((p,i)=>`<li><span>${esc(p.you?session.name||p.name:p.name)}${p.you?" (you)":""}${p.online||p.you?"":` <span class="status">· offline</span> <button class="x" type="button" data-remove="${i}" aria-label="Remove ${esc(p.name)}">Remove</button>`}</span>${(p.you?session.done:p.done)?'<span class="ok">Done ✓</span>':'<span class="status">counting…</span>'}</li>`).join("")
+    +(others.length?"":'<li><span class="status">No one else yet. Tap “Invite players” to share the room.</span></li>'):'<li><span class="status">Connecting…</span></li>';
+}
+
+$("room-cards").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b||!session)return;
+  if(b.id==="done")session.done=!session.done;
+  else if(b.dataset.k!==undefined&&b.hasAttribute("data-mine")){const k=b.dataset.k;session.counts[k]=Math.max(0,Math.min(30,session.counts[k]+ +b.dataset.d))}
+  else return;
+  saveSession();sendMine();renderRoom();
+});
+$("who").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-remove]");if(!b||!view)return;
+  const p=view.players[+b.dataset.remove];
+  if(p&&confirm(`Remove ${p.name} from the game? Their phone isn't connected.`))send({t:"remove",index:+b.dataset.remove});
+});
+$("together").onclick=()=>showStart();
+$("start-cancel").onclick=()=>show("solo");
+$("host").onclick=()=>startSession(newCode(),true);
+$("join").onclick=()=>{
+  const code=$("join-code").value.trim().toUpperCase();
+  if(!/^[A-Z]{4}$/.test(code)){showStart("Room codes are 4 letters.",code);return}
+  startSession(code,false);
+};
+$("join-code").addEventListener("keydown",e=>{if(e.key==="Enter")$("join").click()});
+$("leave").onclick=()=>{
+  if(!confirm("Leave this game? Your entry will be removed from the room."))return;
+  send({t:"leave"});leaveRoom();show("solo");
+};
+$("invite").onclick=async()=>{
+  const url=`${location.origin}${location.pathname}?room=${session.code}`;
+  if(navigator.share){try{await navigator.share({title:"Join my Quartz game",text:`Room code ${session.code}`,url});return}catch(e){if(e.name==="AbortError")return}}
+  try{await navigator.clipboard.writeText(url);conn="Invite link copied. Paste it to the other players."}catch(e){conn=`Share this link: ${url}`}
+  renderRoom();setTimeout(()=>{if(conn.startsWith("Invite")||conn.startsWith("Share")){conn="";renderRoom()}},6000);
+};
+// A phone that slept may have a dead connection; reconnect as soon as it's visible again.
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&session&&!ws)connect(false)});
+
 render();
+// Invite links look like ?room=ABCD. Rejoin a saved game, or open the join panel with the code filled in.
+const linkCode=(new URLSearchParams(location.search).get("room")||"").toUpperCase();
+if(linkCode)history.replaceState(null,"",location.pathname);
+if(session&&(!linkCode||linkCode===session.code))enterRoom(false);
+else if(/^[A-Z]{4}$/.test(linkCode))showStart("",linkCode);
+else show("solo");
 </script>
 
 <script>

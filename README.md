@@ -29,6 +29,7 @@ index.html             the whole app (HTML, CSS, JS)
 manifest.webmanifest   name, colors and icons for "Add to Home Screen"
 sw.js                  service worker for offline use
 icons/                 app icons (SVG source + PNG sizes)
+server/                game rooms server for "Play together" (Cloudflare Worker)
 ```
 
 ## Deploying
@@ -45,4 +46,23 @@ Open the deployed URL in Chrome, tap ⋮, then **Install app** (or **Add to Home
 
 When you change any app file, bump `VERSION` in `sw.js` (e.g. `v1` → `v2`). Otherwise installed copies keep serving the cached old version. After a deploy, close and reopen the app once or twice to pick up the update.
 
-Game data is saved in the browser's `localStorage` on each device. It isn't synced between devices or between different site addresses.
+Solo game data is saved in the browser's `localStorage` on each device. It isn't synced between devices or between different site addresses.
+
+## Play together
+
+**Play together** lets each player enter their own crystals on their own phone. One player hosts and gets a 4-letter room code; the others join with the code or an invite link (`?room=ABCD`). Each player's counts stay hidden from the others until everyone taps **Done**, then every phone shows the final standings. Up to 6 players; rooms delete themselves after 24 hours. Players whose phone has disconnected can be removed so they don't hold up the reveal.
+
+This needs the rooms server in `server/`: a Cloudflare Worker with one Durable Object per room, relaying state over WebSockets. Solo scoring doesn't use it and still works offline.
+
+**Run locally** (needs Node.js):
+
+```
+cd server
+npm install
+npm run dev                 # rooms server on ws://localhost:8787
+npm test                    # plays a game against it (keep `npm run dev` running)
+```
+
+Serve the app on port 8765 (`python -m http.server 8765` from the repo root). The app uses the local server automatically when opened from `localhost`.
+
+**Deploy:** `npx wrangler login` once, then `npm run deploy` from `server/`. Put the `*.workers.dev` URL it prints into `ROOMS_URL` in `index.html`. The server only accepts connections from the origins in `ALLOWED_ORIGINS` in `server/wrangler.jsonc`; add yours there if you host the app somewhere other than `punkkills.github.io`.

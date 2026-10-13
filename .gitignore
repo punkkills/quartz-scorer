@@ -3,3 +3,4 @@ Thumbs.db
 .netlify/
 .vercel/
 .wrangler/
+node_modules/
